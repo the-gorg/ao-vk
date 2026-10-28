@@ -15,11 +15,11 @@ by hand; run the script after changing a setting (`--check` tells whether this f
 - A setting renamed or given a new default carries over once (`kMigrations`); its old names are listed.
 - *knob*: a plain value set through the generic path (`rvk.h` `RVK_FLOAT_KNOBS`, `RVK_BOOL_KNOBS`).
 
-328 settings, 159 of them in the settings window.
+329 settings, 159 of them in the settings window.
 
 ## Sections
 
-- [General](#general) (8)
+- [General](#general) (9)
 - [Lighting](#lighting) (17)
 - [Materials](#materials) (14)
 - [Debug](#debug) (8)
@@ -43,6 +43,7 @@ by hand; run the script after changing a setting (`--check` tells whether this f
 | --- | --- | --- | --- | --- |
 | `RVK_Enhance` | All enhancements (Ctrl+Shift+E) | on / off | on | window |
 | `RVK_Prepass` | Depth pre-pass | on / off | on | ini only; knob |
+| `RVK_LiteShader` | The interface drawn with a lean shader (its own: the full one's registers made every window cost; the same picture) | on / off | on | ini only; knob |
 | `RVK_PrepassEq` | Depth pre-pass: what it covers shaded only where it is seen | on / off | on | ini only; switch `RVK_Prepass`; knob |
 | `RVK_UiRate` | Interface refresh rate (0 = every frame) | 0 / 30 / 60 / 90 / 120 | 60 | window |
 | `RVK_PerfHud` | Performance readout in the top left: frames a second, the game's and the renderer's CPU time, the GPU's, client memory and VRAM | on / off | off | window |

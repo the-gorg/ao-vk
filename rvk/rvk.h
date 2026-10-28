@@ -281,6 +281,7 @@ struct DeviceInfo {
     X(Headroom, m_lightHeadroom, C|L)                 /* how bright local lights may make a surface (1..2) */
 #define RVK_BOOL_KNOBS(X) \
     X(Prepass, m_prepassOn, 0)                        /* the depth pre-pass */ \
+    X(LiteShader, m_liteShader, 0)                    /* the interface's draws through the lean shader */ \
     X(PrepassEq, m_prepassEqual, 0)                   /* pre-passed draws shaded only where their depth is */ \
     X(FolEdges, m_foliageEdges, 0)                    /* plants' soft edges in a second pass */ \
     X(OwnLight, m_carrierLit, C)                      /* a character's own light lights the character */ \
@@ -1340,6 +1341,7 @@ private:
     std::vector<CapturedLight> m_lightsCur, m_lightsPrev;   // point / spot lights used this / last frame
     void CaptureLight(LightSlot& slot);
 
+    bool m_liteShader = true;                    // RVK_LiteShader: the interface's draws through the lean shader
     // Sun shadows (shadow.cpp)
     uint32_t m_shadowSize = 4096;                // sun shadow map size (pixels, each cascade)
     uint32_t m_pointShadowSize = 1024;           // point light shadow cube face size (pixels)
@@ -1896,6 +1898,9 @@ private:
     VkPipeline m_pipelinesHdr[3] = {};           // m_pipelines for the float target
     VkPipeline m_pipelinesNoCut[3] = {};         // ... and the no-discard variant (early-Z; no cut-out)
     VkPipeline m_pipelinesHdrNoCut[3] = {};
+    VkPipeline m_pipelinesLite[3] = {};          // 8-bit targets' 2D draws: the lean shader (ffp_lite.frag; m_drawLite)
+    VkPipeline m_pipelinesLiteNoCut[3] = {};
+    bool m_drawLite = false;                     // the current draw takes the lean shader (draw.cpp)
     VkPipeline m_tessPipelines[2] = {};          // characters' Phong tessellation: 8-bit target, float target
     VkPipeline m_tessPipelinesNoCut[2] = {};     // ... no-discard
     bool m_tessSupported = false;

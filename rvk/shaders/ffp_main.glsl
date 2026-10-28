@@ -644,6 +644,53 @@ vec3 CloudSheet(vec4 tex)
     return mix(S, AirColour(SkyAirAll(FL.cloudAir.rgb, dir, FL.sky[0], FL.sky[1], FL.sky[3], FL.skyRing), low), max(0.25, low));
 }
 
+#ifdef RVK_LITE
+// The lite variant (ffp_lite.frag; rvk draw.cpp m_drawLite, RVK_LiteShader): pre-transformed 2D draws on 8-bit targets -
+// the interface - unlit, unfogged, unshadowed, with no material maps. Of main() below only this much ever runs for them;
+// the full shader is register-bound by the rest (256 VGPRs: 4 waves per SIMD, its every pixel waiting on its texture
+// reads), and the interface paid that price too. The same output as the full path, step for step in its order.
+void main()
+{
+    gRecord = vRecord;
+    gDiffuse = vDiffuse;
+    gSpecular = vSpecular;
+    vec4 t0 = Sample(0u);
+    vec4 t1 = C.stageA[0].x != 1u ? Sample(1u) : vec4(0.0);
+    vec4 current = Cascade(t0, t1, 1.0);
+    // (Unlit and unshadowed: the full path's flat shade - none, but by night a storm's dimming.)
+    if (FL.moon.w > 0.5)
+        current.rgb *= (1.0 - kCloudSunShare * FL.rainNear.y) * (1.0 - 0.5 * FL.rainNear.y);
+    if (C.vtx.y != 0u) {                                  // (the per-draw colour scale: as the full path's)
+        float bright = uintBitsToFloat(C.vtx.y);
+        if (bright < 1.0) {
+            current.rgb *= bright;
+        } else {
+            float shape = clamp(min(t0.a, max(t0.r, max(t0.g, t0.b))), 0.0, 1.0);
+            float core = smoothstep(0.25, 0.9, shape);
+            current.rgb *= mix(1.0, bright, core);
+            float peak = max(current.r, max(current.g, current.b));
+            current.rgb = mix(current.rgb, vec3(peak), core * clamp((bright - 1.0) / 3.0, 0.0, 1.0));
+        }
+    }
+    if ((D.mat.z & MAT_PICKED) != 0u)
+        current.rgb = mix(current.rgb, vec3(1.0, 0.85, 0.1) * max(dot(current.rgb, vec3(0.3, 0.59, 0.11)), 0.35) * 2.0, 0.7);
+#ifndef RVK_NO_CUTOUT
+    if ((C.flags.x & F_ALPHATEST) != 0u && !AlphaPass(current.a))
+        discard;
+    if ((C.flags.x & F_CUTOUT) != 0u && current.a < vCutout)
+        discard;
+#endif
+    if ((C.flags.w & 512u) != 0u)
+        current = vec4(0.10, 0.32, 0.14, 1.0);
+    if ((C.flags.w & 256u) != 0u)
+        current.a = 1.0;
+    if (FL.terrainSun2.w > 0.5 && (C.flags.w & 256u) == 0u)   // (RVK_ShadowView: no shadow looked up here)
+        current.rgb = vec3(0.5) * mix(0.08, 1.0, 0.6);
+    if (any(isnan(current)) || any(isinf(current))) current = vec4(0.0, 0.0, 0.0, any(isnan(current.aaaa)) ? 1.0 : current.a);
+    current.rgb = max(current.rgb, vec3(0.0));
+    outColor = current;
+}
+#else
 void main()
 {
     gRecord = vRecord;
@@ -1289,3 +1336,4 @@ void main()
     outColor = current;
 }
 #endif
+#endif   // RVK_LITE
