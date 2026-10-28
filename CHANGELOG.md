@@ -5,6 +5,14 @@ What changed in each ao-vk release, newest first. Downloads and install notes: t
 
 ## Unreleased
 
+### Changed
+- Open windows (inventory, chat, the map) cost far less of the graphics card: the interface is drawn with its own lean
+  shader instead of the full scene shader, about 1.5 ms less a frame with a few windows open on an RX 6600 XT, the same
+  picture. `RVK_LiteShader` (on) switches it off.
+- Everything in the scene that isn't the ground (characters, buildings, props) is drawn with a shader that leaves out
+  the ground's code, over half of the full one: about 1.2 ms less a frame in game on an RX 6600 XT, the same
+  picture. `RVK_GroundSplit` (on) switches it off.
+
 ## 0.7.1 - 2026-10-26
 
 ### Fixed
