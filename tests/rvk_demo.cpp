@@ -4285,6 +4285,7 @@ std::string g_leafTrees;           // --leaf-tree: the files, comma-separated
 Device::LeafSettings g_leafSettings{true};   // --leaf-off, --leaf-density, --leaf-size, --leaf-dist, --leaf-core, --leaf-wind, --leaf-flutter
 int g_folEdges = -1;               // --fol-edges 0|1: RVK_FolEdges, plants' soft edges in a second pass (-1: the default)
 int g_prepassEq = -1;              // --prepass-eq 0|1: RVK_PrepassEq, pre-passed draws shaded only where their depth is
+int g_groundSplit = -1;            // --ground-split 0|1: RVK_GroundSplit, draws off the ground without its shader code
 float g_folDither = -1.0f;         // --fol-dither D: RVK_FolDither, soft edges dithered past D units (0 never; -1: default)
 float g_leafCamDist = -1.0f;       // --leaf-cam-dist D: the camera this far from the row (default: from the trees' size)
 float g_leafCamHeight = -1.0f;     // --leaf-cam-height H: ... this high (default: a third of the tallest tree)
@@ -4896,6 +4897,7 @@ int main(int argc, char** argv)
         else if (a == "--leaf-cam-dist" && i + 1 < argc) g_leafCamDist = float(std::atof(argv[++i]));
         else if (a == "--fol-edges" && i + 1 < argc) g_folEdges = std::atoi(argv[++i]);
         else if (a == "--prepass-eq" && i + 1 < argc) g_prepassEq = std::atoi(argv[++i]);
+        else if (a == "--ground-split" && i + 1 < argc) g_groundSplit = std::atoi(argv[++i]);
         else if (a == "--fol-dither" && i + 1 < argc) g_folDither = float(std::atof(argv[++i]));
         else if (a == "--leaf-cam-height" && i + 1 < argc) g_leafCamHeight = float(std::atof(argv[++i]));
         else if (a == "--leaf-cam-yaw" && i + 1 < argc) g_leafCamYaw = float(std::atof(argv[++i]));
@@ -5211,6 +5213,7 @@ int main(int argc, char** argv)
     }
     dev.SetKnob(rvk::Knob::StormThick, g_stormThick);
     dev.SetKnob(rvk::Knob::GroundOne, float(g_groundOne));
+    if (g_groundSplit >= 0) dev.SetKnob(rvk::Knob::GroundSplit, float(g_groundSplit));
     dev.SetFogBanks(1.0f, g_fogBankForce);
     dev.SetHeatFlash(1.0f, g_heatForce);
     dev.SetKnob(rvk::Knob::SandBlow, g_sandBlow);

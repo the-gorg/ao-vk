@@ -70,6 +70,12 @@ const uint32_t kFragLiteSpirv[] = {             // 8-bit targets' 2D draws (the 
 const uint32_t kFragLiteNoCutSpirv[] = {
 #include "ffp_lite_nocut.frag.inc"
 };
+const uint32_t kFragOffGroundSpirv[] = {        // the HDR scene's draws that aren't the ground: no ground code
+#include "ffp_glow_noterrain.frag.inc"
+};
+const uint32_t kFragOffGroundNoCutSpirv[] = {
+#include "ffp_glow_noterrain_nocut.frag.inc"
+};
 
 // Access/stage masks to go with an image layout, for barriers.
 void LayoutUse(VkImageLayout layout, VkPipelineStageFlags2* stage, VkAccessFlags2* access)
@@ -248,6 +254,8 @@ Device::~Device()
     for (VkPipeline p : m_pipelinesHdrNoCut) if (p) vkDestroyPipeline(m_device, p, nullptr);
     for (VkPipeline p : m_pipelinesLite) if (p) vkDestroyPipeline(m_device, p, nullptr);
     for (VkPipeline p : m_pipelinesLiteNoCut) if (p) vkDestroyPipeline(m_device, p, nullptr);
+    for (VkPipeline p : m_pipelinesOffGround) if (p) vkDestroyPipeline(m_device, p, nullptr);
+    for (VkPipeline p : m_pipelinesOffGroundNoCut) if (p) vkDestroyPipeline(m_device, p, nullptr);
     for (VkPipeline p : m_tessPipelines) if (p) vkDestroyPipeline(m_device, p, nullptr);
     for (VkPipeline p : m_tessPipelinesNoCut) if (p) vkDestroyPipeline(m_device, p, nullptr);
     if (m_prepassPipeline) vkDestroyPipeline(m_device, m_prepassPipeline, nullptr);
@@ -1035,13 +1043,15 @@ bool Device::CreatePipelines(std::string* error)
         ci.pCode = code;
         return Check(vkCreateShaderModule(m_device, &ci, nullptr, out), "vkCreateShaderModule", error);
     };
-    VkShaderModule vert, frag, fragGlow, fragNoCut, fragGlowNoCut, fragLite, fragLiteNoCut;
+    VkShaderModule vert, frag, fragGlow, fragNoCut, fragGlowNoCut, fragLite, fragLiteNoCut, fragOff, fragOffNoCut;
     if (!module(kVertSpirv, sizeof(kVertSpirv), &vert) || !module(kFragSpirv, sizeof(kFragSpirv), &frag) ||
         !module(kFragGlowSpirv, sizeof(kFragGlowSpirv), &fragGlow) ||
         !module(kFragNoCutSpirv, sizeof(kFragNoCutSpirv), &fragNoCut) ||
         !module(kFragGlowNoCutSpirv, sizeof(kFragGlowNoCutSpirv), &fragGlowNoCut) ||
         !module(kFragLiteSpirv, sizeof(kFragLiteSpirv), &fragLite) ||
-        !module(kFragLiteNoCutSpirv, sizeof(kFragLiteNoCutSpirv), &fragLiteNoCut))
+        !module(kFragLiteNoCutSpirv, sizeof(kFragLiteNoCutSpirv), &fragLiteNoCut) ||
+        !module(kFragOffGroundSpirv, sizeof(kFragOffGroundSpirv), &fragOff) ||
+        !module(kFragOffGroundNoCutSpirv, sizeof(kFragOffGroundNoCutSpirv), &fragOffNoCut))
         return false;
 
     VkPipelineShaderStageCreateInfo stages[2] = {
@@ -1089,14 +1099,16 @@ bool Device::CreatePipelines(std::string* error)
                                                           VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
     bool ok = true;
     // One set for the 8-bit targets, one for the HDR scene (float); each also as a no-discard variant (early-Z for
-    // draws that never cut out). Set 2: the 8-bit targets' lean shader (2D draws: the interface).
-    for (int set = 0; set < 3 && ok; ++set)
+    // draws that never cut out). Set 2: the 8-bit targets' lean shader (2D draws: the interface). Set 3: the HDR
+    // scene's draws that aren't the ground (no ground code: fewer registers).
+    for (int set = 0; set < 4 && ok; ++set)
     for (int nc = 0; nc < 2 && ok; ++nc)
     for (int c = 0; c < 3 && ok; ++c) {
-        const bool hdr = set == 1;
+        const bool hdr = set == 1 || set == 3;
         colorFormats[0] = hdr ? GetFormatInfo(Format::RGBA16F).vk : kColorFormat;
         rendering.colorAttachmentCount = cb.attachmentCount = hdr ? 5 : 1;
         stages[1].module = set == 2 ? (nc ? fragLiteNoCut : fragLite)
+                         : set == 3 ? (nc ? fragOffNoCut : fragOff)
                          : nc ? (hdr ? fragGlowNoCut : fragNoCut) : (hdr ? fragGlow : frag);
         VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         ia.topology = kClassTopology[c];
@@ -1113,6 +1125,7 @@ bool Device::CreatePipelines(std::string* error)
         ci.pDynamicState = &ds;
         ci.layout = m_pipelineLayout;
         VkPipeline* dst = set == 2 ? (nc ? &m_pipelinesLiteNoCut[c] : &m_pipelinesLite[c])
+                        : set == 3 ? (nc ? &m_pipelinesOffGroundNoCut[c] : &m_pipelinesOffGround[c])
                         : hdr ? (nc ? &m_pipelinesHdrNoCut[c] : &m_pipelinesHdr[c])
                               : (nc ? &m_pipelinesNoCut[c] : &m_pipelines[c]);
         ok = Check(vkCreateGraphicsPipelines(m_device, m_pipelineCache, 1, &ci, nullptr, dst),
@@ -1133,11 +1146,14 @@ bool Device::CreatePipelines(std::string* error)
         VkPipelineTessellationStateCreateInfo ts{VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
         ts.pNext = &origin;
         ts.patchControlPoints = 3;
-        for (int set = 0; set < 2 && ok; ++set)
+        // (Set 2: the float target's characters - off the ground, the lean scene shader; the native ground is
+        // tessellated too and keeps set 1.)
+        for (int set = 0; set < 3 && ok; ++set)
         for (int nc = 0; nc < 2 && ok; ++nc) {
             colorFormats[0] = set ? GetFormatInfo(Format::RGBA16F).vk : kColorFormat;
             rendering.colorAttachmentCount = cb.attachmentCount = set ? 5 : 1;
-            tstages[3].module = nc ? (set ? fragGlowNoCut : fragNoCut) : (set ? fragGlow : frag);
+            tstages[3].module = set == 2 ? (nc ? fragOffNoCut : fragOff)
+                              : nc ? (set ? fragGlowNoCut : fragNoCut) : (set ? fragGlow : frag);
             VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
             ia.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
             VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -1206,6 +1222,8 @@ bool Device::CreatePipelines(std::string* error)
     vkDestroyShaderModule(m_device, fragNoCut, nullptr);
     vkDestroyShaderModule(m_device, fragLite, nullptr);
     vkDestroyShaderModule(m_device, fragLiteNoCut, nullptr);
+    vkDestroyShaderModule(m_device, fragOff, nullptr);
+    vkDestroyShaderModule(m_device, fragOffNoCut, nullptr);
     if (!ok || !CreateShadowResources(error) || !CreatePointShadowResources(error) || !CreateHdrResources(error) ||
         !CreateDarknessResources(error) ||
         !CreateParticleResources(error) || !CreateSkinResources(error))

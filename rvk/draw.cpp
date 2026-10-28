@@ -2026,17 +2026,22 @@ void Device::ApplyDynamicState(uint32_t primitive, uint32_t fvf, uint32_t stride
     uint32_t topoClass = TopologyClass(primitive);
     bool hdrTarget = m_target->m_format == Format::RGBA16F;
     // Pipeline classes: 0-2 points / lines / triangles, 3-5 the same for the float target, 6 / 7 tessellated, 8-10
-    // the 8-bit targets' lean shader (m_drawLite); +12 for the no-discard variant (a draw that never cuts out keeps
-    // early-Z).
+    // the 8-bit targets' lean shader (m_drawLite), 11 tessellated and 12-14 the float target's draws off the ground
+    // (m_drawOffGround); +16 for the no-discard variant (a draw that never cuts out keeps early-Z).
     const bool lite = m_drawLite && !m_drawTess && !hdrTarget;
-    uint32_t colorClass = m_drawTess ? 6u + (hdrTarget ? 1u : 0u) : lite ? 8u + topoClass : topoClass + (hdrTarget ? 3u : 0u);
-    uint32_t pipelineClass = colorClass + (m_drawMayDiscard ? 0u : 12u);
+    const bool offGround = m_drawOffGround && hdrTarget;
+    uint32_t colorClass = m_drawTess ? (offGround ? 11u : 6u + (hdrTarget ? 1u : 0u))
+                        : lite ? 8u + topoClass : offGround ? 12u + topoClass : topoClass + (hdrTarget ? 3u : 0u);
+    uint32_t pipelineClass = colorClass + (m_drawMayDiscard ? 0u : 16u);
     if (c.topologyClass != pipelineClass) {
         VkPipeline pipeline;
         if (lite)
             pipeline = m_drawMayDiscard ? m_pipelinesLite[topoClass] : m_pipelinesLiteNoCut[topoClass];
-        else if (m_drawTess)
-            pipeline = m_drawMayDiscard ? m_tessPipelines[hdrTarget ? 1 : 0] : m_tessPipelinesNoCut[hdrTarget ? 1 : 0];
+        else if (m_drawTess) {
+            const int set = offGround ? 2 : hdrTarget ? 1 : 0;
+            pipeline = m_drawMayDiscard ? m_tessPipelines[set] : m_tessPipelinesNoCut[set];
+        } else if (offGround)
+            pipeline = m_drawMayDiscard ? m_pipelinesOffGround[topoClass] : m_pipelinesOffGroundNoCut[topoClass];
         else if (hdrTarget)
             pipeline = m_drawMayDiscard ? m_pipelinesHdr[topoClass] : m_pipelinesHdrNoCut[topoClass];
         else
@@ -2392,9 +2397,9 @@ void Device::FlushEdges()
     const d3d::Viewport savedViewport = m_viewport;
     const bool mayDiscard = m_drawMayDiscard, tess = m_drawTess, label = m_drawIsLabel, prepassed = m_drawPrepassed,
                backdrop = m_drawBackdrop, overbright = m_drawOverbright2x, terrainBase = m_drawTerrainBase,
-               terrainLight = m_drawTerrainLight, lite = m_drawLite;
+               terrainLight = m_drawTerrainLight, lite = m_drawLite, offGround = m_drawOffGround;
     m_drawMayDiscard = true;
-    m_drawLite = false;                          // (3D foliage: the full shader)
+    m_drawLite = m_drawOffGround = false;        // (3D foliage: the full shader)
     m_drawTess = m_drawIsLabel = m_drawBackdrop = m_drawOverbright2x = m_drawTerrainBase = m_drawTerrainLight = false;
     // Depth compared strictly (LESS, whatever the draw had): where the plant's own core wrote its depth the edge has
     // nothing to draw (alpha from the core up), and fails there before its shader runs rather than after.
@@ -2426,6 +2431,7 @@ void Device::FlushEdges()
     m_viewport = savedViewport;
     m_drawMayDiscard = mayDiscard;
     m_drawLite = lite;
+    m_drawOffGround = offGround;
     m_drawTess = tess;
     m_drawIsLabel = label;
     m_drawPrepassed = prepassed;
@@ -3442,11 +3448,18 @@ void Device::Draw(uint32_t primitive, uint32_t fvf, const void* vertices, uint32
     // The lean shader (RVK_LiteShader, ffp_lite.frag): a pre-transformed 2D draw on an 8-bit target - the interface -
     // unlit, unfogged, unshadowed, with no material maps. All the full shader does for such a draw is in its lean
     // main(); the rest is off for it (the debug views by the same test: fvf XYZRHW).
-    m_drawLite = m_liteShader && !hdrTarget && !m_drawTess && (fvf & d3d::FVF_POSITION_MASK) == d3d::FVF_XYZRHW &&
+    // (Not tessellated: decided further down, and ApplyDynamicState checks it.)
+    m_drawLite = m_liteShader && !hdrTarget && (fvf & d3d::FVF_POSITION_MASK) == d3d::FVF_XYZRHW &&
                  (flags & (F_LIGHTING | F_FOG | F_SHADOW | F_SHADOWCOMP | F_SHADOWTEX | F_GLOW | F_GLOWALPHA |
                            F_OVERBRIGHT2X | F_FOLIAGE | F_NOALBEDO)) == 0u &&
                  !m_drawOrm && !m_drawEmissive && !m_drawIsCloudPuff && !m_drawLeaves && !m_drawSplit && !m_drawDither &&
                  m_drawTerrainBase == false && m_drawTerrainLight == false;
+    // The HDR scene's draws that aren't the ground (RVK_GroundSplit, ffp_glow_noterrain.frag): by the record's own
+    // test (terrain.glsl TerrainMapped, TerrainNative), so for them the two shaders are the same - the ground's code,
+    // more than half the full one's, takes registers every draw pays for.
+    uint32_t nativeCodes;
+    std::memcpy(&nativeCodes, &dt.terrain[1], 4);
+    m_drawOffGround = m_groundSplit && hdrTarget && dt.terrainAt[3] <= 0.5f && nativeCodes == 0u;
     c.flags[1] = m_rs[d3d::RS_FOGVERTEXMODE];
     c.flags[2] = m_rs[d3d::RS_FOGTABLEMODE];
     // The sky's scenery (mesh ids: the ships over the cities, kilometres out): hazed as the far sky - exponentially, in
@@ -3757,7 +3770,8 @@ void Device::Draw(uint32_t primitive, uint32_t fvf, const void* vertices, uint32
              uint64_t(m_rs[d3d::RS_ZWRITEENABLE] != 0) << 9 | uint64_t(m_rs[d3d::RS_ALPHABLENDENABLE] != 0) << 10 |
              uint64_t(m_drawMayDiscard) << 11 | uint64_t(m_drawIsLabel) << 12 | uint64_t(m_drawOverbright2x) << 13 |
              uint64_t(m_drawTerrainBase) << 14 | uint64_t(m_drawTerrainLight) << 15 |
-             uint64_t(m_rs[d3d::RS_ZFUNC]) << 16 |   // (the blend factors only while blending: they aren't set else)
+             uint64_t(m_rs[d3d::RS_ZFUNC]) << 16 | uint64_t(m_drawOffGround) << 24 |   // (its shader: GroundSplit)
+             // (the blend factors only while blending: they aren't set else)
              (m_rs[d3d::RS_ALPHABLENDENABLE] ? uint64_t(m_rs[d3d::RS_SRCBLEND]) << 32 |
                                                    uint64_t(m_rs[d3d::RS_DESTBLEND]) << 48 : 0));
         groupKey = k ? k : 1;
@@ -3767,7 +3781,7 @@ void Device::Draw(uint32_t primitive, uint32_t fvf, const void* vertices, uint32
                 uint64_t(smoothBuffer) ^ smoothOffset ^ smoothBytes, frameLightsOffset, m_drawPrepassed ? 1u : 0u,
                 m_drawBackdrop ? 1u : 0u, m_rs[d3d::RS_CULLMODE], uint64_t(m_rs[d3d::RS_ZWRITEENABLE] != 0) | uint64_t(m_rs[d3d::RS_ZFUNC]) << 8,
                 m_rs[d3d::RS_ALPHABLENDENABLE], uint64_t(m_drawMayDiscard) | uint64_t(m_drawIsLabel) << 1 | uint64_t(m_drawOverbright2x) << 2,
-                uint64_t(m_drawTerrainBase) | uint64_t(m_drawTerrainLight) << 1};
+                uint64_t(m_drawTerrainBase) | uint64_t(m_drawTerrainLight) << 1 | uint64_t(m_drawOffGround) << 2};
             if (m_group.active && groupKey != m_group.key)
                 for (int i = 0; i < kSplitParts; ++i) m_splitWhy[i] += parts[i] != m_lastGroupParts[i];
             else if (!m_group.active)

@@ -23,8 +23,13 @@
 
 const float kTerrainBase = 1.0, kTerrainLight = 2.0;
 
-// The draw is a ground chunk whose base texture lies on the world from above (rvk FillTerrainRecord).
+// The draw is a ground chunk whose base texture lies on the world from above (rvk FillTerrainRecord). In the variant
+// for every other draw (RVK_NO_TERRAIN, ffp_glow_noterrain.frag) a constant: all that follows from it folds away.
+#ifdef RVK_NO_TERRAIN
+bool TerrainMapped() { return false; }
+#else
 bool TerrainMapped() { return D.terrainAt.w > 0.5; }
+#endif
 
 #include "terrain_rock.glsl"
 
@@ -144,7 +149,11 @@ TerrainMap TerrainMapAt(vec3 posW, vec2 uv, vec3 n)
 
 // ---- the native ground: each cell's own tile (docs/native-ground-plan.md)
 
+#ifdef RVK_NO_TERRAIN
+bool TerrainNative() { return false; }
+#else
 bool TerrainNative() { return floatBitsToUint(D.terrain.y) != 0u; }
+#endif
 
 // The cell's tile's bindless image and its turn: the tile-code texture's texel (R, G the image, B the turn).
 uvec2 NativeCell(vec2 cell)

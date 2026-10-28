@@ -282,6 +282,7 @@ struct DeviceInfo {
 #define RVK_BOOL_KNOBS(X) \
     X(Prepass, m_prepassOn, 0)                        /* the depth pre-pass */ \
     X(LiteShader, m_liteShader, 0)                    /* the interface's draws through the lean shader */ \
+    X(GroundSplit, m_groundSplit, 0)                  /* draws off the ground through the shader without its code */ \
     X(PrepassEq, m_prepassEqual, 0)                   /* pre-passed draws shaded only where their depth is */ \
     X(FolEdges, m_foliageEdges, 0)                    /* plants' soft edges in a second pass */ \
     X(OwnLight, m_carrierLit, C)                      /* a character's own light lights the character */ \
@@ -1342,6 +1343,7 @@ private:
     void CaptureLight(LightSlot& slot);
 
     bool m_liteShader = true;                    // RVK_LiteShader: the interface's draws through the lean shader
+    bool m_groundSplit = true;                   // RVK_GroundSplit: draws off the ground through the shader without its code
     // Sun shadows (shadow.cpp)
     uint32_t m_shadowSize = 4096;                // sun shadow map size (pixels, each cascade)
     uint32_t m_pointShadowSize = 1024;           // point light shadow cube face size (pixels)
@@ -1901,8 +1903,11 @@ private:
     VkPipeline m_pipelinesLite[3] = {};          // 8-bit targets' 2D draws: the lean shader (ffp_lite.frag; m_drawLite)
     VkPipeline m_pipelinesLiteNoCut[3] = {};
     bool m_drawLite = false;                     // the current draw takes the lean shader (draw.cpp)
-    VkPipeline m_tessPipelines[2] = {};          // characters' Phong tessellation: 8-bit target, float target
-    VkPipeline m_tessPipelinesNoCut[2] = {};     // ... no-discard
+    VkPipeline m_pipelinesOffGround[3] = {};     // the HDR scene's draws that aren't the ground (ffp_glow_noterrain.frag;
+    VkPipeline m_pipelinesOffGroundNoCut[3] = {};   // m_drawOffGround)
+    bool m_drawOffGround = false;                // the current draw takes the scene shader without the ground's code
+    VkPipeline m_tessPipelines[3] = {};          // characters' Phong tessellation: 8-bit target, float target, float
+    VkPipeline m_tessPipelinesNoCut[3] = {};     // target off the ground; ... no-discard
     bool m_tessSupported = false;
     // Phong tessellation of characters near the camera (draw.cpp TessellateDraw): RVK_Tess*.
     float m_tessShape = 0.0f;                    // 0 = off; how far towards the smooth shape (Phong's alpha)

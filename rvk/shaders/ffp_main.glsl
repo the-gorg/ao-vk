@@ -281,9 +281,10 @@ float gGroundAway = 1.0;                                // ... and the native gr
 // few degrees round that line - with or without a shadow map: under ~3 degrees there is none, and the slopes turned
 // away were only tinted, grey sand as bright as the lit (the user's rvk-frame-161624). Gone as the sun sets below the
 // horizon (by then the hour's light has no sun in it), and by the moon's light.
+bool TerrainNative();                            // (terrain.glsl)
 float GroundAway(vec3 n)
 {
-    if (floatBitsToUint(D.terrain.y) == 0u || FL.moon.w > 0.5 || dot(n, n) <= 0.0) return 1.0;
+    if (!TerrainNative() || FL.moon.w > 0.5 || dot(n, n) <= 0.0) return 1.0;
     const vec3 L = -normalize(FL.sunDir.xyz + vec3(0.0, -1e-6, 0.0));
     return mix(1.0, smoothstep(-0.06, 0.06, dot(normalize(n), L)), smoothstep(-0.08, -0.02, L.y));
 }
@@ -362,7 +363,7 @@ float SunVisibilityCasters(vec3 posW, vec3 n)
     if (dot(n, n) > 0.0) {
         n = normalize(n);
         nl = dot(n, L);
-        if (floatBitsToUint(D.terrain.y) != 0u) {
+        if (TerrainNative()) {
             if (gGroundAway <= 0.0) return 1.0;      // (SunVisibility: GroundAway)
             nl = max(nl, 0.0);
         } else if (nl <= 0.0)
